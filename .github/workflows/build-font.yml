@@ -3,13 +3,51 @@ name: Custom Build with SHA256
 on:
   workflow_dispatch:
     inputs:
-      # ... (保持原有的 inputs 不变)
-      feat:
-        description: 'Enable features, e.g. "cv01,ss02,zero"'
+      cn:
+        description: 'Include Chinese version'
         required: false
-        default: 'cv01,zero' # 默认帮你开启完整的 @ 和带点的 0
+        default: false
+        type: boolean
+      normal:
+        description: 'Remove opinionated features'
+        required: false
+        default: false
+        type: boolean
+      no_liga:
+        description: 'Remove ligatures'
+        required: false
+        default: false
+        type: boolean
+      no_hinted:
+        description: 'Build unhinted font'
+        required: false
+        default: false
+        type: boolean
+      width:
+        description: 'Glyph width mode'
+        required: false
+        default: default
+        type: choice
+        options: [default, narrow, slim]
+      nerd_font:
+        description: 'Nerd Font icon mode'
+        required: false
+        default: default
+        type: choice
+        options: [default, mono, proportional]
+      feat:
+        description: 'Enable features (e.g. cv01,zero)'
+        required: false
+        default: 'cv01,zero'
         type: string
-      # ... (其他 inputs 保持不变)
+      build_args:
+        description: 'Other args'
+        required: false
+        default: ''
+        type: string
+  push:
+    paths:
+      - 'config.json'
 
 permissions:
   contents: write
@@ -32,7 +70,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          # 处理 Nerd Font 补丁工具依赖
+          # 检查是否需要 fontforge 环境
           if [[ "${{ github.event.inputs.build_args }}" == *"--font-patcher"* ]] || python build.py --dry | jq -e '.nerd_font.use_font_patcher == true' >/dev/null; then
             sudo apt update -y -q
             sudo apt install software-properties-common python3-fontforge fuse -y -q
@@ -44,42 +82,57 @@ jobs:
 
       - name: Run build script
         run: |
-          # 组装复杂的编译参数
+          # 使用环境变量处理默认值，防止 push 触发时 inputs 为空
+          IN_CN="${{ github.event.inputs.cn || 'false' }}"
+          IN_NORMAL="${{ github.event.inputs.normal || 'false' }}"
+          IN_NO_LIGA="${{ github.event.inputs.no_liga || 'false' }}"
+          IN_NO_HINTED="${{ github.event.inputs.no_hinted || 'false' }}"
+          IN_WIDTH="${{ github.event.inputs.width || 'default' }}"
+          IN_NF_MODE="${{ github.event.inputs.nerd_font || 'default' }}"
+          IN_FEAT="${{ github.event.inputs.feat || 'cv01,zero' }}"
+          IN_EXTRA_ARGS="${{ github.event.inputs.build_args || '' }}"
+
           build_args="--archive"
-          [ "${{ github.event.inputs.cn }}" == "true" ] && build_args="$build_args --cn"
-          [ "${{ github.event.inputs.normal }}" == "true" ] && build_args="$build_args --normal"
-          [ "${{ github.event.inputs.no_liga }}" == "true" ] && build_args="$build_args --no-liga"
-          [ "${{ github.event.inputs.no_hinted }}" == "true" ] && build_args="$build_args --no-hinted"
-          [ "${{ github.event.inputs.width }}" != "default" ] && build_args="$build_args --width ${{ github.event.inputs.width }}"
           
-          case "${{ github.event.inputs.nerd_font }}" in
-            default) build_args="$build_args --nf" ;;
-            mono) build_args="$build_args --nf-mono" ;;
+          [ "$IN_CN" == "true" ] && build_args="$build_args --cn"
+          [ "$IN_NORMAL" == "true" ] && build_args="$build_args --normal"
+          [ "$IN_NO_LIGA" == "true" ] && build_args="$build_args --no-liga"
+          [ "$IN_NO_HINTED" == "true" ] && build_args="$build_args --no-hinted"
+          
+          # 只有当 width 既不为空也不是 default 时才添加参数
+          if [ "$IN_WIDTH" != "default" ] && [ -n "$IN_WIDTH" ]; then
+            build_args="$build_args --width $IN_WIDTH"
+          fi
+          
+          case "$IN_NF_MODE" in
+            default)      build_args="$build_args --nf" ;;
+            mono)         build_args="$build_args --nf-mono" ;;
             proportional) build_args="$build_args --nf-propo" ;;
           esac
           
-          if [ -n "${{ github.event.inputs.feat }}" ]; then
-            build_args="$build_args --feat ${{ github.event.inputs.feat }}"
+          if [ -n "$IN_FEAT" ]; then
+            build_args="$build_args --feat $IN_FEAT"
           fi
-          if [ -n "${{ github.event.inputs.build_args }}" ]; then
-            build_args="$build_args ${{ github.event.inputs.build_args }}"
+          
+          if [ -n "$IN_EXTRA_ARGS" ]; then
+            build_args="$build_args $IN_EXTRA_ARGS"
           fi
 
           echo "BUILD_ARGS=$build_args" >> $GITHUB_ENV
           python build.py $build_args
-        continue-on-error: false # 建议改为 false，编译失败就别继续了
 
       - name: Generate SHA256 Checksums
         run: |
           echo "### SHA256 Checksums" >> NOTES
           echo "\`\`\`" >> NOTES
-          # 进入产物目录计算所有压缩包的哈希
           if [ -d "fonts/archive" ]; then
             cd fonts/archive
             for f in *.*; do
               sha256sum "$f" >> ../../NOTES
             done
             cd ../..
+          else
+            echo "No archive directory found." >> NOTES
           fi
           echo "\`\`\`" >> NOTES
 
@@ -89,12 +142,8 @@ jobs:
             echo "Error: Build output directory not found."
             exit 1
           fi
-          # 添加构建参数到备注
           echo "### Build details" >> NOTES
           echo "- Command: \`python build.py $BUILD_ARGS\`" >> NOTES
-          echo "- Timestamp: $(date '+%Y-%m-%d %H:%M:%S')" >> NOTES
-          
-          # 使用 gh 命令行工具发布
           gh release create "v$(date +%Y%m%d-%H%M%S)" fonts/archive/*.* --notes-file NOTES
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
