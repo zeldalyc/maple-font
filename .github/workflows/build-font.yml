@@ -1,4 +1,4 @@
-name: Custom Font Build & Release
+name: Maple Mono Custom Build
 
 on:
   workflow_dispatch: 
@@ -6,7 +6,6 @@ on:
     paths:
       - 'config.json'
 
-# 核心修复：显式声明权限
 permissions:
   contents: write
 
@@ -14,57 +13,73 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive # 如果项目有子模块，必须开启
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip' # 开启缓存加速
 
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y zip ttfautohint # 安装一些常用的字体处理工具
+          sudo apt-get install -y zip ttfautohint
+          # 安装 Maple Mono 编译核心工具 otfcc
+          wget https://github.com/nowar-fonts/otfcc-build/releases/download/v0.10.4/otfcc-64-linux-0.10.4.zip
+          unzip otfcc-64-linux-0.10.4.zip
+          sudo mv otfccbuild otfccdump /usr/local/bin/
+          sudo chmod +x /usr/local/bin/otfcc*
 
       - name: Install Python Dependencies
         run: |
-          # 优先安装项目自带的依赖列表
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # 补全 Maple-font 编译必须的库
           pip install fonttools font-v brotli zopfli cu2qu
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Build Font
         run: |
-          # 运行编译，并捕获详细日志
-          python build.py 
-          
-      - name: Check Output
-        run: |
-          # 检查编译产物在哪里，Maple-font 默认可能在 out 或 dist
-          ls -R
+          # 确保脚本有执行权限
+          chmod +x build.py || true
+          python build.py
 
-      - name: Package Font
+      - name: Package and Hash
+        id: package
         run: |
           mkdir -p release_dist
-          # 这里的路径需要根据上一步 ls -R 的结果调整，通常是 out/ 或 dist/
-          if [ -d "out" ]; then zip -j release_dist/MapleMono-Custom.zip out/*.ttf out/*.otf; fi
-          if [ -d "dist" ]; then zip -j release_dist/MapleMono-Custom.zip dist/*.ttf dist/*.otf; fi
-
-      - name: Calculate Hash
-        id: calc_hash
-        run: |
-          HASH=$(sha256sum release_dist/MapleMono-Custom.zip | awk '{print $1}')
-          echo "SHA256=$HASH" >> $GITHUB_OUTPUT
+          # 自动识别输出目录
+          if [ -d "out" ]; then 
+            EXPORT_DIR="out"
+          elif [ -d "dist" ]; then 
+            EXPORT_DIR="dist"
+          else 
+            echo "Error: Build output directory not found." && exit 1
+          fi
+          
+          # 压缩并计算哈希
+          cd $EXPORT_DIR
+          zip -r ../release_dist/MapleMono-Custom.zip ./*.ttf ./*.otf || echo "No files found to zip"
+          cd ..
+          
+          if [ -f "release_dist/MapleMono-Custom.zip" ]; then
+            HASH_VAL=$(sha256sum release_dist/MapleMono-Custom.zip | awk '{print $1}')
+            echo "sha256=$HASH_VAL" >> $GITHUB_OUTPUT
+            echo "Calculated SHA256: $HASH_VAL"
+          else
+            echo "Error: Zip file creation failed." && exit 1
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: Custom Build v1.0.${{ github.run_number }}
+          name: Maple Mono Custom v1.0.${{ github.run_number }}
           body: |
-            SHA256: `${{ steps.calc_hash.outputs.SHA256 }}`
+            ### 编译元数据
+            - **SHA256:** `${{ steps.package.outputs.sha256 }}`
+            - **构建时间:** ${{ github.event.head_commit.timestamp }}
+            - **说明:** 已固化 config.json 中的特性（如 cv01, zero 等）。
           files: release_dist/MapleMono-Custom.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
