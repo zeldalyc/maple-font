@@ -1,0 +1,55 @@
+name: Custom Font Build & Release
+
+on:
+  workflow_dispatch: # 允许手动点击按钮触发
+  push:
+    paths:
+      - 'config.json' # 当你修改配置文件时触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install fonttools font-v brotli
+          # 如果 Maple Mono 有特定的 requirements.txt，请取消下行注释
+          # pip install -r requirements.txt
+
+      - name: Build Font
+        run: |
+          # 运行编译脚本（假设你已根据前文修改了 config.json）
+          python build.py 
+          
+      - name: Package Font
+        run: |
+          mkdir -p release_dist
+          # 假设编译产物在 dist 文件夹下
+          zip -j release_dist/MapleMono-Custom.zip dist/*.ttf dist/*.otf
+
+      - name: Calculate Hash
+        id: calc_hash
+        run: |
+          HASH=$(sha256sum release_dist/MapleMono-Custom.zip | awk '{print $1}')
+          echo "SHA256=$HASH" >> $GITHUB_OUTPUT
+          echo "当前版本哈希值为: $HASH"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Custom Build v${{ github.run_number }}
+          body: |
+            自动生成的自定义字体版本。
+            SHA256: `${{ steps.calc_hash.outputs.SHA256 }}`
+          files: release_dist/MapleMono-Custom.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
