@@ -22,7 +22,7 @@ jobs:
         run: |
           pip install fonttools font-v brotli
           # 如果 Maple Mono 有特定的 requirements.txt，请取消下行注释
-          # pip install -r requirements.txt
+          pip install -r requirements.txt
 
       - name: Build Font
         run: |
