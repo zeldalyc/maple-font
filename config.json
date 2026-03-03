@@ -21,11 +21,11 @@
   "line_height": 1.0,
   "width": "default",
   "feature_freeze": {
-    "cv01": "ignore",
+    "cv01": "enable",
     "cv02": "ignore",
     "cv03": "ignore",
     "cv04": "ignore",
-    "cv05": "ignore",
+    "cv05": "enable",
     "cv06": "ignore",
     "cv07": "ignore",
     "cv08": "ignore",
@@ -56,8 +56,8 @@
     "cv97": "ignore",
     "cv98": "ignore",
     "cv99": "ignore",
-    "ss01": "ignore",
-    "ss02": "ignore",
+    "ss01": "enable",
+    "ss02": "enable",
     "ss03": "ignore",
     "ss04": "ignore",
     "ss05": "ignore",
@@ -81,7 +81,7 @@
     "extra_args": []
   },
   "cn": {
-    "enable": false,
+    "enable": true,
     "with_nerd_font": true,
     "fix_meta_table": true,
     "clean_cache": false,
